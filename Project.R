@@ -1,3 +1,4 @@
+# load the libraries
 library(forecast)
 library(Metrics)
 library(lubridate)
@@ -6,6 +7,7 @@ library(gridExtra)
 library(ggplot2)
 library(dplyr)
 
+# load in the data
 data_2015 <- read.csv("2015.csv")
 data_2016 <- read.csv("2016.csv")
 data_2017 <- read.csv("2017.csv")
@@ -181,7 +183,7 @@ fit_all_hw=HoltWinters(ts_train_all,seasonal="additive", gamma=T)
 forecast_all_hw <- forecast(fit_all_hw, h=12)
 plot(forecast(forecast_all_hw))
 
-#
+# Performance
 rmse(forecast_all_hw$mean,ts_valid_all)
 rmse(forecast_all_arima$mean,ts_valid_all)
 
@@ -190,8 +192,6 @@ mae(forecast_all_arima$mean,ts_valid_all)
 
 mape(forecast_all_hw$mean,ts_valid_all)
 mape(forecast_all_arima$mean,ts_valid_all)
-
-
 
 
 ### assult data TS
@@ -341,7 +341,7 @@ fit_ass_hw=HoltWinters(ts_train_ass,seasonal="additive", gamma=T)
 forecast_ass_hw <- forecast(fit_ass_hw, h=12)
 plot(forecast(forecast_ass_hw))
 
-#
+# Performance
 rmse(forecast_ass_hw$mean,ts_valid_ass)
 rmse(forecast_ass_arima$mean,ts_valid_ass)
 
@@ -388,3 +388,6 @@ ts_full_ass <- ts(full_data_ass$count,
 fit_full_ass_hw=HoltWinters(ts_full_ass,seasonal="additive", gamma=T)
 forecast_full_ass_hw <- forecast(fit_full_ass_hw, h=21)
 plot(forecast(forecast_full_ass_hw))
+
+
+
