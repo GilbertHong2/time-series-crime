@@ -10,4 +10,4 @@ Holt-Winters model forecasts that the total crime count would slowly go up while
 similar level as recent years, while the assault crime count could slowly recover to pre-COVID
 levels and increase rather quickly.
 
-The used data files are included in the csv files in the directory
+The final report is in the report pdf file. The used data files are included in the csv files in the directory.
