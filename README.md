@@ -9,3 +9,5 @@ a clear seasonal pattern but have a significant drop from the beginning of 2020.
 Holt-Winters model forecasts that the total crime count would slowly go up while maintaining a
 similar level as recent years, while the assault crime count could slowly recover to pre-COVID
 levels and increase rather quickly.
+
+The used data files are included in the csv files in the directory
