@@ -1,0 +1,321 @@
+---
+title: "Untitled"
+output: pdf_document
+---
+
+```{r}
+library(forecast)
+library(Metrics)
+library(lubridate)
+library(tseries)
+library(gridExtra)
+library(ggplot2)
+library(dplyr)
+
+data_2015 <- read.csv("2015.csv")
+data_2016 <- read.csv("2016.csv")
+data_2017 <- read.csv("2017.csv")
+data_2018 <- read.csv("2018.csv")
+data_2019 <- read.csv("2019.csv")
+data_2020 <- read.csv("2020.csv")
+data_2021 <- read.csv("2021.csv")
+data_2022 <- read.csv("2022.csv")
+data_2023 <- read.csv("2023.csv")
+
+# data_2015$OFFENSE_DESCRIPTION <- as.factor(data_2015$OFFENSE_DESCRIPTION)
+# levels(data_2015$OFFENSE_DESCRIPTION)
+
+# set up the date and count
+data_train_tmp <- rbind(data_2015,data_2016,data_2017,data_2018,data_2019,
+                        data_2020,data_2021)
+data_valid_tmp <- rbind(data_2022,data_2023)
+
+data_train_tmp$timestamp <- ymd_hms(data_train_tmp$OCCURRED_ON_DATE)
+data_train_tmp$date <- as.Date(data_train_tmp$timestamp)
+data_train_tmp$year_month <- paste(year(data_train_tmp$date), 
+                  sprintf("%02d", month(data_train_tmp$date)), sep = "-")
+
+data_train_all <- data_train_tmp %>%
+  group_by(year_month) %>%
+  summarise(count = n())
+data_train_all <- data_train_all[-1, ]
+
+data_valid_tmp$timestamp <- ymd_hms(data_valid_tmp$OCCURRED_ON_DATE)
+data_valid_tmp$date <- as.Date(data_valid_tmp$timestamp)
+data_valid_tmp$year_month <- paste(year(data_valid_tmp$date), 
+                                   sprintf("%02d", month(data_valid_tmp$date)), sep = "-")
+
+data_valid_all <- data_valid_tmp %>%
+  group_by(year_month) %>%
+  summarise(count = n())
+data_valid_all <- data_valid_all[-nrow(data_valid_all), ]
+
+# change the type to TS
+ts_train_all <- ts(data_train_all$count, 
+                   start = c(2015, 7),
+                   frequency = 12)
+plot.ts(ts_train_all)
+
+ts_valid_all <- ts(data_valid_all$count, 
+                   start = c(2022, 1),
+                   frequency = 12)
+plot.ts(ts_valid_all)
+
+# decompose the train data
+ts_train_all_decomp <- decompose(ts_train_all)
+decomp.plot <- function(x, main = NULL, ...) 
+{ 
+  if(is.null(main)) 
+    main <- paste("Decomposition of", x$type, "time series") 
+  plot(cbind(observed = x$random + if (x$type == "additive") 
+    x$trend + x$seasonal 
+    else x$trend * x$seasonal, trend = x$trend, seasonal = x$seasonal, 
+    random = x$random), main = main, ...) 
+} 
+decomp.plot(ts_train_all_decomp,main="Additive Decomposition of Crime Data")
+
+# clear trend and seasonality from the data
+
+adf.test(ts_train_all)
+
+# not quite stationary either
+
+ts_train_all_diff <- diff(ts_train_all)
+plot.ts(ts_train_all_diff)
+adf.test(ts_train_all_diff)
+
+# differenced data is more stationary
+acf(ts_train_all_diff)
+pacf(ts_train_all_diff)
+
+# pacf looks like generally decaying as a sinuoid, with noise
+# acf also decays, but notes a seasonal trend for spikes
+
+# try arima forecast first
+# arima_orders <- list(
+#   c(1, 1, 1),
+#   c(1, 1, 2),
+#   c(2, 1, 1),
+#   c(2, 1, 2),
+#   c(1, 1, 0),
+#   c(0, 1, 0),
+#   c(0, 1, 1)
+# )
+# 
+# 
+# season_orders <- list(
+#   c(1, 1, 1),
+#   c(0, 1, 1),
+#   c(1, 1, 0),
+#   c(1, 1, 2),
+#   c(2, 1, 2),
+#   c(2, 1, 1)
+# )
+# 
+# 
+# for (order in arima_orders) {
+#   for (season in season_orders){
+#     arima_model <- Arima(ts_train_all, order = order, 
+#                          seasonal = list(order = season, period = 12))
+#     cat("ARIMA(", paste(order, collapse = ","), paste(season, collapse = ","), "): AIC =", arima_model$aic, "\n")
+#   }
+# }
+fit_all_arima <- arima(ts_train_all,order=c(2, 1, 1), seasonal = list(order=c(0,1,1),12))
+fit_all_arima
+forecast_all_arima <- forecast(fit_all_arima, h=12)
+plot(forecast(forecast_all_arima))
+
+qqnorm(fit_all_arima$residuals)
+qqline(fit_all_arima$residuals)
+plot(fit_all_arima$residuals)
+
+acf(fit_all_arima$residuals)
+pacf(fit_all_arima$residuals)
+
+# standardized residuals
+residuals <- fit_all_arima$residuals
+standardized_residuals <- residuals / sd(residuals)
+
+# Ljung-Box p-values
+max_lag <- 20
+lb_p_values <- numeric(max_lag)
+
+for (lag in 1:max_lag) {
+  lb_test <- Box.test(standardized_residuals, type = "Ljung-Box", lag = lag)
+  lb_p_values[lag] <- lb_test$p.value
+}
+
+residuals_plot <- ggplot() +
+  geom_line(aes(x = 1:length(standardized_residuals), y = standardized_residuals)) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Standardized Residuals", x = "Time", y = "Value")
+
+# Ljung-Box p-values plot
+lb_p_values_plot <- ggplot(data.frame(lag = 1:max_lag, p_value = lb_p_values), aes(x = lag, y = p_value)) +
+  geom_point(color = "blue") +
+  geom_line(color = "blue") +
+  geom_hline(yintercept = 0.05, color = "red", linetype = "dashed") +
+  labs(title = "Ljung-Box p-values", x = "Lag", y = "p-value")
+lb_p_values_plot
+# Combine plots
+grid.arrange(residuals_plot, lb_p_values_plot, ncol = 2)
+
+# HW forecast
+fit_all_hw=HoltWinters(ts_train_all,seasonal="additive", gamma=T)
+forecast_all_hw <- forecast(fit_all_hw, h=12)
+plot(forecast(forecast_all_hw))
+
+#
+rmse(forecast_all_hw$mean,ts_valid_all)
+rmse(forecast_all_arima$mean,ts_valid_all)
+
+mae(forecast_all_hw$mean,ts_valid_all)
+mae(forecast_all_arima$mean,ts_valid_all)
+
+mape(forecast_all_hw$mean,ts_valid_all)
+mape(forecast_all_arima$mean,ts_valid_all)
+
+
+
+
+### assult data TS
+
+# other possible interesting parts of the data
+data_train_ass_tmp <- data_train_tmp[grepl("^ASSAULT", as.character(data_train_tmp$OFFENSE_DESCRIPTION)), ]
+#data_train_rob <- data_train_all[grepl("^ROBBERY", as.character(data_train_all$OFFENSE_DESCRIPTION)), ]
+#data_train_burg <- data_train_all[grepl("^BURGLARY", as.character(data_train_all$OFFENSE_DESCRIPTION)), ]
+
+data_valid_ass_tmp <- data_valid_tmp[grepl("^ASSAULT", as.character(data_valid_tmp$OFFENSE_DESCRIPTION)), ]
+#data_valid_rob <- data_valid_all[grepl("^ROBBERY", as.character(data_2023$OFFENSE_DESCRIPTION)), ]
+#data_valid_burg <- data_valid_all[grepl("^BURGLARY", as.character(data_2023$OFFENSE_DESCRIPTION)), ]
+
+data_train_ass <- data_train_ass_tmp %>%
+  group_by(year_month) %>%
+  summarise(count = n())
+data_train_ass <- data_train_ass[-1, ]
+
+data_valid_ass <- data_valid_ass_tmp %>%
+  group_by(year_month) %>%
+  summarise(count = n())
+data_valid_ass <- data_valid_ass[-nrow(data_valid_ass), ]
+
+# change the type to TS
+ts_train_ass <- ts(data_train_ass$count, 
+                   start = c(2015, 7),
+                   frequency = 12)
+plot.ts(ts_train_ass)
+
+ts_valid_ass <- ts(data_valid_ass$count, 
+                   start = c(2022, 1),
+                   frequency = 12)
+plot.ts(ts_valid_ass)
+
+# decompose the train data
+ts_train_ass_decomp <- decompose(ts_train_ass)
+decomp.plot(ts_train_ass_decomp,main="Additive Decomposition of Crime Assault Data")
+
+# clear trend and seasonality from the data
+
+adf.test(ts_train_ass)
+
+# not quite stationary either
+
+ts_train_ass_diff <- diff(ts_train_ass)
+plot.ts(ts_train_ass_diff)
+adf.test(ts_train_ass_diff)
+
+# differenced data is more stationary
+acf(ts_train_ass_diff)
+pacf(ts_train_ass_diff)
+
+# pacf looks like generassy decaying as a sinuoid, with noise
+# acf also decays, but notes a seasonal trend for spikes
+
+# try arima forecast first
+# arima_orders <- list(
+#   c(1, 1, 1),
+#   c(1, 1, 2),
+#   c(2, 1, 1),
+#   c(2, 1, 2),
+#   c(1, 1, 0),
+#   c(0, 1, 0),
+#   c(0, 1, 1)
+# )
+# 
+# 
+# season_orders <- list(
+#   c(1, 1, 1),
+#   c(0, 1, 1),
+#   c(1, 1, 0),
+#   c(1, 1, 2),
+#   c(2, 1, 2),
+#   c(2, 1, 1)
+# )
+# 
+# 
+# for (order in arima_orders) {
+#   for (season in season_orders){
+#     arima_model <- Arima(ts_train_ass, order = order, 
+#                          seasonal = list(order = season, period = 12))
+#     cat("ARIMA(", paste(order, collapse = ","), paste(season, collapse = ","), "): AIC =", arima_model$aic, "\n")
+#   }
+# }s
+fit_ass_arima <- arima(ts_train_ass,order=c(1, 1, 2), seasonal = list(order=c(0,1,1),12))
+fit_ass_arima
+forecast_ass_arima <- forecast(fit_ass_arima, h=12)
+plot(forecast(forecast_ass_arima))
+
+qqnorm(fit_ass_arima$residuals)
+qqline(fit_ass_arima$residuals)
+plot(fit_ass_arima$residuals)
+
+acf(fit_ass_arima$residuals)
+pacf(fit_ass_arima$residuals)
+
+# standardized residuals
+residuals <- fit_ass_arima$residuals
+standardized_residuals <- residuals / sd(residuals)
+
+# Ljung-Box p-values
+max_lag <- 20
+lb_p_values <- numeric(max_lag)
+
+for (lag in 1:max_lag) {
+  lb_test <- Box.test(standardized_residuals, type = "Ljung-Box", lag = lag)
+  lb_p_values[lag] <- lb_test$p.value
+}
+
+residuals_plot <- ggplot() +
+  geom_line(aes(x = 1:length(standardized_residuals), y = standardized_residuals)) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Standardized Residuals", x = "Time", y = "Value")
+
+# Ljung-Box p-values plot
+lb_p_values_plot <- ggplot(data.frame(lag = 1:max_lag, p_value = lb_p_values), aes(x = lag, y = p_value)) +
+  geom_point(color = "blue") +
+  geom_line(color = "blue") +
+  geom_hline(yintercept = 0.05, color = "red", linetype = "dashed") +
+  labs(title = "Ljung-Box p-values", x = "Lag", y = "p-value")
+lb_p_values_plot
+# Combine plots
+grid.arrange(residuals_plot, lb_p_values_plot, ncol = 2)
+
+# HW forecast
+fit_ass_hw=HoltWinters(ts_train_ass,seasonal="additive", gamma=T)
+forecast_ass_hw <- forecast(fit_ass_hw, h=12)
+plot(forecast(forecast_ass_hw))
+
+#
+rmse(forecast_ass_hw$mean,ts_valid_ass)
+rmse(forecast_ass_arima$mean,ts_valid_ass)
+
+mae(forecast_ass_hw$mean,ts_valid_ass)
+mae(forecast_ass_arima$mean,ts_valid_ass)
+
+mape(forecast_ass_hw$mean,ts_valid_ass)
+mape(forecast_ass_arima$mean,ts_valid_ass)
+
+
+
+```
+
