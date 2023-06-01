@@ -1,4 +1,4 @@
-# time-series-crime
+# Time Series Crime
 
 This project is to explore the crime incident counts in Boston and model it in time, with
 an emphasis on the total crime incident counts and the assault crime counts as an example of
